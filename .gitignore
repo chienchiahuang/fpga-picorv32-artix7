@@ -1,0 +1,6 @@
+build/
+firmware/*.o
+firmware/*.elf
+firmware/*.bin
+firmware/*.hex
+firmware/*.dis
