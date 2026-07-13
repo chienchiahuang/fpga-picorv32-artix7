@@ -4,7 +4,9 @@ module top (
     input  btn0,      // Reset button D9 (active-high)
     output [3:0] led, // LD4-LD7
     output uart_tx,   // D10
-    input  uart_rx    // A9
+    input  uart_rx,   // A9
+    inout        i2c_sda, // JA1
+    inout        i2c_scl  // JA2
 );
 
     // Power-on + button reset (active-low for PicoRV32)
@@ -25,7 +27,9 @@ module top (
         .resetn  (resetn),
         .gpio    (led),
         .uart_tx (uart_tx),
-        .uart_rx (uart_rx)
+        .uart_rx (uart_rx),
+        .i2c_sda (i2c_sda),
+        .i2c_scl (i2c_scl)
     );
 
 endmodule

@@ -8,7 +8,9 @@ module simple_soc #(
     input  resetn,
     output [3:0] gpio,
     output uart_tx,
-    input  uart_rx
+    input  uart_rx,
+    inout        i2c_sda,
+    inout        i2c_scl
 );
 
     // --- PicoRV32 CPU signals ---
@@ -50,9 +52,11 @@ module simple_soc #(
     //   0x00000000 .. 0x00003FFF  BRAM (16 KB)
     //   0x10000000                GPIO
     //   0x20000000 .. 0x20000008  UART
+    //   0x30000000 .. 0x3000000C  I2C
     wire sel_bram = mem_valid && (mem_addr[31:24] == 8'h00);
     wire sel_gpio = mem_valid && (mem_addr[31:24] == 8'h10);
     wire sel_uart = mem_valid && (mem_addr[31:24] == 8'h20);
+    wire sel_i2c  = mem_valid && (mem_addr[31:24] == 8'h30);
 
     // --- BRAM ---
     wire [31:0] bram_rdata;
@@ -107,12 +111,30 @@ module simple_soc #(
         .uart_rx (uart_rx)
     );
 
+    // --- I2C ---
+    wire [31:0] i2c_rdata;
+    wire        i2c_ready;
+
+    i2c i2c_inst (
+        .clk    (clk),
+        .resetn (resetn),
+        .addr   (mem_addr[3:2]),
+        .wdata  (mem_wdata),
+        .wstrb  (sel_i2c ? mem_wstrb : 4'b0),
+        .valid  (sel_i2c),
+        .rdata  (i2c_rdata),
+        .ready  (i2c_ready),
+        .sda    (i2c_sda),
+        .scl    (i2c_scl)
+    );
+
     // --- Bus mux ---
     assign mem_rdata = sel_bram ? bram_rdata :
                        sel_gpio ? gpio_rdata :
                        sel_uart ? uart_rdata :
+                       sel_i2c  ? i2c_rdata  :
                        32'h0000_0000;
 
-    assign mem_ready = bram_ready | gpio_ready | uart_ready;
+    assign mem_ready = bram_ready | gpio_ready | uart_ready | i2c_ready;
 
 endmodule

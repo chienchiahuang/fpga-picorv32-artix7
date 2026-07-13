@@ -83,6 +83,7 @@ yosys -q -p "
     read_verilog ${RTL_DIR}/bram.v;
     read_verilog ${RTL_DIR}/gpio.v;
     read_verilog ${RTL_DIR}/uart.v;
+    read_verilog ${RTL_DIR}/i2c.v;
     read_verilog ${RTL_DIR}/simple_soc.v;
     read_verilog ${RTL_DIR}/top.v;
     synth_xilinx -flatten -abc9 -arch xc7 -top top;
