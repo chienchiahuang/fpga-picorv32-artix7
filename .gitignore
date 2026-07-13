@@ -1,5 +1,7 @@
 build/
+.vscode/
 firmware/*.o
+firmware/*/*.o
 firmware/*.elf
 firmware/*.bin
 firmware/*.hex

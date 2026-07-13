@@ -5,11 +5,19 @@ OBJDUMP  = $(CROSS)objdump
 
 ARCH     = -march=rv32i -mabi=ilp32
 
-CFLAGS   = $(ARCH) -Os -Wall -ffreestanding -nostdlib
+# -I. lets any demo's main.c do #include "periph/uart.h" or
+# #include "drivers/opt3001.h", resolved relative to this firmware/
+# directory regardless of which subfolder it's compiled from.
+CFLAGS   = $(ARCH) -Os -Wall -ffreestanding -nostdlib -I.
 LDFLAGS  = $(ARCH) -T linker.ld -nostdlib -Wl,--no-relax -Wl,--no-warn-rwx-segments
 
+# Which demo subdirectory provides main(). Override to build a different
+# one, e.g.:
+#   make DEMO=opt3001
+DEMO    ?= hello_world
+
 TARGET   = firmware
-OBJS     = start.o main.o
+OBJS     = start.o $(DEMO)/main.o
 
 .PHONY: all clean
 
@@ -34,4 +42,4 @@ $(TARGET).dis: $(TARGET).elf
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 clean:
-	rm -f $(OBJS) $(TARGET).elf $(TARGET).bin $(TARGET).hex $(TARGET).dis
+	rm -f start.o */main.o $(TARGET).elf $(TARGET).bin $(TARGET).hex $(TARGET).dis
