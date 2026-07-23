@@ -1,5 +1,7 @@
 // Board-level top for Arty A7-35T
-module top (
+module top #(
+    parameter FIRMWARE_HEX = "build/firmware.hex"
+) (
     input  clk,       // 100 MHz E3
     input  btn0,      // Reset button D9 (active-high)
     output [3:0] led, // LD4-LD7
@@ -21,7 +23,8 @@ module top (
     end
 
     simple_soc #(
-        .CLK_FREQ(100_000_000)
+        .CLK_FREQ     (100_000_000),
+        .FIRMWARE_HEX (FIRMWARE_HEX)
     ) soc (
         .clk     (clk),
         .resetn  (resetn),

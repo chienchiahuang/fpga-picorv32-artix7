@@ -2,7 +2,7 @@ module simple_soc #(
     parameter CLK_FREQ     = 100_000_000,
     parameter BAUD         = 115200,
     parameter MEM_SIZE     = 16384,
-    parameter FIRMWARE_HEX = "firmware/firmware.hex"
+    parameter FIRMWARE_HEX = "build/firmware.hex"
 )(
     input  clk,
     input  resetn,

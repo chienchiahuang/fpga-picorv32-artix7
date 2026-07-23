@@ -3,7 +3,7 @@
 firmware/bootloader/main.c -- no re-synthesis/re-programming needed.
 
 Usage:
-    python3 scripts/uart-load.py /dev/tty.usbserial-XXXX firmware/firmware.bin
+    python3 scripts/uart-load.py /dev/tty.usbserial-XXXX build/firmware/<app>/firmware.bin
 
 Protocol (must match firmware/bootloader/main.c exactly):
     host  -> board : 'L'                      (repeated until acked)

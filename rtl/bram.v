@@ -1,6 +1,6 @@
 module bram #(
     parameter MEM_SIZE     = 16384,
-    parameter FIRMWARE_HEX = "firmware/firmware.hex"
+    parameter FIRMWARE_HEX = "build/firmware.hex"
 )(
     input             clk,
     input      [31:0] addr,

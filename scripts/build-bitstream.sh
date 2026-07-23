@@ -5,7 +5,8 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BUILD_DIR="${PROJECT_ROOT}/build"
 RTL_DIR="${PROJECT_ROOT}/rtl"
 XDC="${PROJECT_ROOT}/constraints/board.xdc"
-FW_HEX="${PROJECT_ROOT}/firmware/firmware.hex"
+FW_APP="${FW_APP:-hello_world}"
+FW_HEX="${FW_HEX:-${PROJECT_ROOT}/build/firmware/${FW_APP}/firmware.hex}"
 
 PART="xc7a35tcsg324-1"
 DOCKER_IMAGE="picorv32-toolchain"
@@ -23,6 +24,7 @@ if ! command -v yosys >/dev/null 2>&1 || \
     if docker image inspect "$DOCKER_IMAGE" >/dev/null 2>&1; then
         echo "==> Native tools not found; running inside Docker ..."
         exec docker run --rm \
+            -e "FW_APP=${FW_APP}" \
             -v "${PROJECT_ROOT}:/workspace" \
             -w /workspace \
             "$DOCKER_IMAGE" \
@@ -76,6 +78,14 @@ if [ -z "$XRAY_DB" ]; then
 fi
 
 mkdir -p "$BUILD_DIR"
+
+# rtl/top.v's FIRMWARE_HEX default points here. Stage the resolved per-app
+# image at this fixed path rather than overriding the parameter at
+# synthesis time: Yosys's Verilog frontend resolves $readmemh's file
+# argument (in rtl/bram.v) while parsing, before any later `chparam` command
+# gets a chance to run -- so `chparam -set FIRMWARE_HEX ... top` is silently
+# too late and has no effect on which file actually gets read.
+cp "$FW_HEX" "${BUILD_DIR}/firmware.hex"
 
 echo "==> Synthesizing with yosys ..."
 yosys -q -p "
