@@ -1,6 +1,10 @@
 DOCKER_IMAGE = picorv32-toolchain
+DEMO         ?= hello_world
+# Prefer the repo's own .venv (pyserial) if present, else fall back to
+# whatever's on PATH.
+PYTHON       ?= $(if $(wildcard .venv/bin/python3),.venv/bin/python3,python3)
 
-.PHONY: all firmware bitstream program docker-image clean submodules
+.PHONY: all firmware bitstream program docker-image clean submodules load
 
 all: bitstream
 
@@ -27,6 +31,16 @@ bitstream: submodules firmware/firmware.hex
 # --- Program ---
 program: build/top.bit
 	bash scripts/program.sh
+
+# --- Load a demo over UART, no re-synthesis needed (see firmware/bootloader/) ---
+#   make load PORT=/dev/tty.usbserial-XXXX [DEMO=opt3001]
+load:
+	@if [ -z "$(PORT)" ]; then \
+		echo "ERROR: PORT is not set, e.g. make load PORT=/dev/tty.usbserial-XXXX" >&2; \
+		exit 1; \
+	fi
+	$(MAKE) -C firmware DEMO=$(DEMO)
+	$(PYTHON) scripts/uart-load.py $(PORT) firmware/firmware.bin
 
 # --- Clean ---
 clean:

@@ -1,5 +1,7 @@
 build/
 .vscode/
+__pycache__/
+.venv/
 firmware/*.o
 firmware/*/*.o
 firmware/*.elf
