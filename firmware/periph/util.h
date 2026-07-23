@@ -1,5 +1,5 @@
-#ifndef DRIVERS_UTIL_H
-#define DRIVERS_UTIL_H
+#ifndef PERIPH_UTIL_H
+#define PERIPH_UTIL_H
 
 static inline void delay(volatile int n)
 {

@@ -1,5 +1,5 @@
-#ifndef DRIVERS_UART_H
-#define DRIVERS_UART_H
+#ifndef PERIPH_UART_H
+#define PERIPH_UART_H
 
 #include <stdint.h>
 
@@ -20,6 +20,18 @@ static inline void uart_puts(const char *s)
 {
 	while (*s)
 		uart_putc(*s++);
+}
+
+static inline int uart_rx_valid(void)
+{
+	return (UART_STAT & 0x2) != 0;
+}
+
+static inline char uart_getc(void)
+{
+	while (!uart_rx_valid())
+		;
+	return (char)UART_RX;
 }
 
 static inline void uart_puthex(uint32_t v)

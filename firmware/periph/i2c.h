@@ -1,5 +1,5 @@
-#ifndef DRIVERS_I2C_H
-#define DRIVERS_I2C_H
+#ifndef PERIPH_I2C_H
+#define PERIPH_I2C_H
 
 #include <stdint.h>
 

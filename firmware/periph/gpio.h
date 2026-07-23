@@ -1,5 +1,5 @@
-#ifndef DRIVERS_GPIO_H
-#define DRIVERS_GPIO_H
+#ifndef PERIPH_GPIO_H
+#define PERIPH_GPIO_H
 
 #include <stdint.h>
 
