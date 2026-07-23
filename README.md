@@ -10,6 +10,8 @@ Minimal RISC-V SoC targeting the Digilent Arty A7-35T using **only** open-source
   [PicoRV32 CPU]
     |  native memory bus
     |--[BRAM 16 KB]     0x00000000
+    |    0x0000-0x07FF    bootloader (fixed, always runs first after reset)
+    |    0x0800-0x37FF    user firmware (loadable over UART, see below)
     |--[GPIO 4-bit]     0x10000000
     |--[UART 115200]    0x20000000
     `--[I2C master]     0x30000000
@@ -70,19 +72,23 @@ uint8_t value = I2C_RXDATA;
 | `rtl/i2c.v` | Polled I2C master, 100 kHz, no clock stretching |
 | `rtl/picorv32.v` | **Downloaded** from YosysHQ (auto-fetched by Make) |
 | `sim/tb_i2c.v` | Self-checking testbench for `rtl/i2c.v` (run via `scripts/sim-i2c.sh`) |
-| `firmware/start.S` | Reset vector, stack init, BSS clear, call main |
+| `firmware/start.S` | Reset vector, stack init, BSS clear, call main (shared by the bootloader and every demo) |
 | `firmware/periph/` | On-chip SoC peripheral register maps + helpers (GPIO/UART/I2C) |
 | `firmware/drivers/` | Drivers for external devices sitting on top of `periph/` (e.g. `opt3001.h`) |
+| `firmware/bootloader/main.c` | UART bootloader: always runs first, loads a new demo over serial or boots the existing one |
+| `firmware/bootloader/boot.ld` | Links the bootloader into the first 2 KB (0x000-0x7FF) |
 | `firmware/hello_world/main.c` | Default firmware: LED blink + UART "Hello" |
 | `firmware/opt3001/main.c` | Reads an OPT3001 ambient light sensor over I2C, prints lux over UART |
 | `firmware/i2c_scan/main.c` | Scans the I2C bus and reports which addresses ACK |
-| `firmware/linker.ld` | Maps everything to 16 KB at 0x00000000 |
-| `firmware/Makefile` | Cross-compile firmware → firmware.hex (`DEMO=<subdir>` selects which demo's `main.c` to build) |
+| `firmware/linker.ld` | Links a demo into the 14 KB user region starting at 0x800 |
+| `firmware/Makefile` | Builds the bootloader + selected demo (`DEMO=<subdir>`) and merges them into firmware.hex |
 | `constraints/board.xdc` | Arty A7-35T pin constraints |
 | `docker/Dockerfile` | Full FPGA toolchain (yosys, nextpnr-xilinx, prjxray) |
 | `scripts/build-bitstream.sh` | yosys → nextpnr → fasm2frames → bitstream |
 | `scripts/program.sh` | openFPGALoader wrapper |
 | `scripts/bin2hex.py` | Binary → $readmemh hex converter |
+| `scripts/merge-hex.py` | Combines bootloader.hex + user.hex into the final firmware.hex |
+| `scripts/uart-load.py` | Host-side tool: sends a demo binary to the bootloader over serial |
 | `scripts/sim-i2c.sh` | Runs `sim/tb_i2c.v` with Icarus Verilog |
 
 ## Firmware organization
@@ -91,6 +97,7 @@ uint8_t value = I2C_RXDATA;
 firmware/
   periph/           on-chip SoC peripheral registers + helpers (gpio.h, uart.h, i2c.h, util.h)
   drivers/          drivers for external devices sitting on top of periph/ (e.g. opt3001.h)
+  bootloader/       always-resident UART bootloader (main.c, boot.ld) -- not a demo
   hello_world/      demo: main.c
   opt3001/          demo: main.c
   i2c_scan/         demo: main.c
@@ -103,8 +110,12 @@ firmware/
 - **`drivers/`** is for chips attached *through* a peripheral (e.g. an I2C
   sensor). A driver only depends on `periph/`, never on a specific demo, so
   it can be reused across demos.
-- Each demo is its own subdirectory with a single `main.c`; only one demo is
-  built into `firmware.hex` at a time (see `DEMO=` below).
+- **`bootloader/`** is always linked in first (0x000-0x7FF) and is what
+  makes the "load over UART, no re-synth" workflow below possible — see
+  that section for how it works.
+- Each demo is its own subdirectory with a single `main.c`, linked to start
+  right after the bootloader (0x800); only one demo is built into
+  `firmware.hex` at a time (see `DEMO=` below).
 - To add a new demo: create `firmware/<name>/main.c`, `#include` whatever
   `periph/`/`drivers/` headers it needs, and build with
   `make -C firmware DEMO=<name>`.
@@ -200,6 +211,18 @@ sudo apt install openfpgaloader
 # or from source: https://github.com/trabucayre/openFPGALoader
 ```
 
+### 4. pyserial (for `make load` / `scripts/uart-load.py`)
+
+Only needed if you want to load new firmware over UART without
+re-synthesizing (see "Iterating on firmware" below). Homebrew/system Python
+usually blocks a bare `pip install`, so use a venv:
+```bash
+python3 -m venv .venv
+.venv/bin/pip install pyserial
+```
+`make load` automatically uses `.venv/bin/python3` if present, so no
+activation needed.
+
 ## Build & run
 
 ```bash
@@ -222,16 +245,53 @@ make -C firmware DEMO=opt3001
 make bitstream   # picks up whatever firmware/firmware.hex was last built
 ```
 
-After programming you should see:
-- LEDs counting in binary (LD4–LD7)
-- UART output at 115200 8N1 on the USB serial port:
-  ```
-  --- PicoRV32 SoC on Arty A7 ---
-  Hello, RISC-V!
-  tick 00000000
-  tick 00000001
-  ...
-  ```
+After programming, the bootloader runs first (see "Iterating on firmware"
+below) — it prints its own banner, waits ~15s for a UART load request, then
+falls through to the demo. With no load request you should see, over UART
+at 115200 8N1:
+```
+--- UART bootloader ---
+send 'L' now to load new firmware, else booting in ~15s...
+--- no load request, booting existing firmware ---
+
+--- PicoRV32 SoC on Arty A7 ---
+Hello, RISC-V!
+tick 00000000
+tick 00000001
+...
+```
+and LEDs counting in binary (LD4–LD7).
+
+## Iterating on firmware (no re-synthesis)
+
+Synthesis + P&R (`make bitstream`) takes minutes and is only needed when
+`rtl/` or the pin constraints change. Changing which *demo* runs does not
+need it, thanks to `firmware/bootloader/`: it always runs first after
+reset, waits briefly for a new program over UART, and otherwise boots
+whatever's already loaded.
+
+One-time setup — build and program a bitstream as usual (`make bitstream`,
+`make program`). From then on, to try a different demo (or a firmware
+change), skip straight to:
+
+```bash
+make load PORT=/dev/tty.usbserial-XXXX DEMO=opt3001
+```
+
+This rebuilds just `firmware/opt3001/main.c`, then prompts you to press the
+reset button on the board (the script spams a sync byte for up to 8s,
+comfortably inside the bootloader's ~15s window), streams the new binary
+over serial, and drops into a live view of the board's UART output. No
+`make bitstream`/`make program` involved.
+
+Under the hood (`scripts/uart-load.py` talking to
+`firmware/bootloader/main.c`): the host spams a sync byte until the
+bootloader (freshly reset) acks it, then sends a 4-byte length, the raw
+binary, and a 1-byte checksum; the bootloader writes it into the user
+region at 0x800, verifies the checksum, and jumps there. If you don't
+trigger a load in time, the bootloader just jumps to whatever was already
+loaded — so a plain reset/power-cycle still runs the same demo as before,
+just after the bootloader's banner and a ~15s wait.
 
 ## Monitoring UART
 
