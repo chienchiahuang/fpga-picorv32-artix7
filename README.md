@@ -72,23 +72,23 @@ uint8_t value = I2C_RXDATA;
 | `rtl/i2c.v` | Polled I2C master, 100 kHz, no clock stretching |
 | `rtl/picorv32.v` | **Downloaded** from YosysHQ (auto-fetched by Make) |
 | `sim/tb_i2c.v` | Self-checking testbench for `rtl/i2c.v` (run via `scripts/sim-i2c.sh`) |
-| `firmware/start.S` | Reset vector, stack init, BSS clear, call main (shared by the bootloader and every demo) |
+| `firmware/start.S` | Reset vector, stack init, BSS clear, call main (shared by the bootloader and every app) |
 | `firmware/periph/` | On-chip SoC peripheral register maps + helpers (GPIO/UART/I2C) |
 | `firmware/drivers/` | Drivers for external devices sitting on top of `periph/` (e.g. `opt3001.h`) |
-| `firmware/bootloader/main.c` | UART bootloader: always runs first, loads a new demo over serial or boots the existing one |
+| `firmware/bootloader/main.c` | UART bootloader: always runs first, loads a new app over serial or boots the existing one |
 | `firmware/bootloader/boot.ld` | Links the bootloader into the first 2 KB (0x000-0x7FF) |
-| `firmware/hello_world/main.c` | Default firmware: LED blink + UART "Hello" |
-| `firmware/opt3001/main.c` | Reads an OPT3001 ambient light sensor over I2C, prints lux over UART |
-| `firmware/i2c_scan/main.c` | Scans the I2C bus and reports which addresses ACK |
-| `firmware/linker.ld` | Links a demo into the 14 KB user region starting at 0x800 |
-| `firmware/Makefile` | Builds the bootloader + selected demo (`DEMO=<subdir>`) and merges them into firmware.hex |
+| `firmware/samples/hello_world/main.c` | Default firmware: LED blink + UART "Hello" |
+| `firmware/samples/opt3001/main.c` | Reads an OPT3001 ambient light sensor over I2C, prints lux over UART |
+| `firmware/samples/i2c_scan/main.c` | Scans the I2C bus and reports which addresses ACK |
+| `firmware/linker.ld` | Links an app into the 14 KB user region starting at 0x800 |
+| `firmware/Makefile` | Builds the bootloader + selected app (`APP=<subdir>`) under `build/firmware/<app>/` and merges them into `firmware.hex` |
 | `constraints/board.xdc` | Arty A7-35T pin constraints |
 | `docker/Dockerfile` | Full FPGA toolchain (yosys, nextpnr-xilinx, prjxray) |
 | `scripts/build-bitstream.sh` | yosys → nextpnr → fasm2frames → bitstream |
 | `scripts/program.sh` | openFPGALoader wrapper |
 | `scripts/bin2hex.py` | Binary → $readmemh hex converter |
-| `scripts/merge-hex.py` | Combines bootloader.hex + user.hex into the final firmware.hex |
-| `scripts/uart-load.py` | Host-side tool: sends a demo binary to the bootloader over serial |
+| `scripts/merge-hex.py` | Combines `bootloader.hex` + `user.hex` into the final `firmware.hex` |
+| `scripts/uart-load.py` | Host-side tool: sends an app binary to the bootloader over serial |
 | `scripts/sim-i2c.sh` | Runs `sim/tb_i2c.v` with Icarus Verilog |
 
 ## Firmware organization
@@ -97,10 +97,11 @@ uint8_t value = I2C_RXDATA;
 firmware/
   periph/           on-chip SoC peripheral registers + helpers (gpio.h, uart.h, i2c.h, util.h)
   drivers/          drivers for external devices sitting on top of periph/ (e.g. opt3001.h)
-  bootloader/       always-resident UART bootloader (main.c, boot.ld) -- not a demo
-  hello_world/      demo: main.c
-  opt3001/          demo: main.c
-  i2c_scan/         demo: main.c
+  bootloader/       always-resident UART bootloader (main.c, boot.ld) -- not an app
+  samples/
+    hello_world/    app: main.c
+    opt3001/        app: main.c
+    i2c_scan/       app: main.c
   start.S, linker.ld, Makefile
 ```
 
@@ -108,17 +109,20 @@ firmware/
   `rtl/`) — one header per peripheral, `static inline` functions, no `.c`
   files to compile separately.
 - **`drivers/`** is for chips attached *through* a peripheral (e.g. an I2C
-  sensor). A driver only depends on `periph/`, never on a specific demo, so
-  it can be reused across demos.
+  sensor). A driver only depends on `periph/`, never on a specific app, so
+  it can be reused across apps.
 - **`bootloader/`** is always linked in first (0x000-0x7FF) and is what
   makes the "load over UART, no re-synth" workflow below possible — see
   that section for how it works.
-- Each demo is its own subdirectory with a single `main.c`, linked to start
-  right after the bootloader (0x800); only one demo is built into
-  `firmware.hex` at a time (see `DEMO=` below).
-- To add a new demo: create `firmware/<name>/main.c`, `#include` whatever
-  `periph/`/`drivers/` headers it needs, and build with
-  `make -C firmware DEMO=<name>`.
+- Each loadable app lives under `samples/` with a single `main.c`, linked to
+  start right after the bootloader (0x800); only one app is built into
+  `build/firmware/<app>/firmware.hex` at a time (see `APP=` below).
+- To add a new app: create `firmware/samples/<name>/main.c`, `#include`
+  whatever `periph/`/`drivers/` headers it needs, and build with
+  `make -C firmware APP=<name>`. `DEMO=` remains as a compatibility alias.
+- Generated firmware artifacts stay out of the source tree under
+  `build/firmware/<app>/` (`firmware.elf`, `firmware.bin`, `firmware.hex`,
+  `bootloader.elf`, `bootloader.hex`, `user.hex`, disassembly, and objects).
 
 ## Prerequisites
 
@@ -213,7 +217,7 @@ sudo apt install openfpgaloader
 
 ### 4. pyserial (for `make load` / `scripts/uart-load.py`)
 
-Only needed if you want to load new firmware over UART without
+Only needed if you want to load a new app over UART without
 re-synthesizing (see "Iterating on firmware" below). Homebrew/system Python
 usually blocks a bare `pip install`, so use a venv:
 ```bash
@@ -226,7 +230,7 @@ activation needed.
 ## Build & run
 
 ```bash
-# 1. Build firmware (cross-compile C → hex, runs on host)
+# 1. Build the selected app + bootloader image (runs on host)
 make firmware
 
 # 2. Build bitstream (runs in Docker if native tools are absent)
@@ -234,20 +238,23 @@ make bitstream
 
 # 3. Program FPGA (volatile / SRAM load, runs on host)
 make program
+
+# 4. Optional: program SPI flash for power-cycle persistence
+make program-flash
 ```
 
-`make firmware` builds `firmware/hello_world/main.c` by default. To build a
-different demo, pass `DEMO=<subdirectory>` through to the firmware build,
+`make firmware` builds `firmware/samples/hello_world/main.c` by default. To
+build a different app, pass `APP=<subdirectory>` through to the firmware build,
 e.g.:
 
 ```bash
-make -C firmware DEMO=opt3001
-make bitstream   # picks up whatever firmware/firmware.hex was last built
+make firmware APP=opt3001
+make bitstream APP=opt3001   # uses build/firmware/opt3001/firmware.hex
 ```
 
 After programming, the bootloader runs first (see "Iterating on firmware"
 below) — it prints its own banner, waits ~15s for a UART load request, then
-falls through to the demo. With no load request you should see, over UART
+falls through to the app. With no load request you should see, over UART
 at 115200 8N1:
 ```
 --- UART bootloader ---
@@ -265,21 +272,22 @@ and LEDs counting in binary (LD4–LD7).
 ## Iterating on firmware (no re-synthesis)
 
 Synthesis + P&R (`make bitstream`) takes minutes and is only needed when
-`rtl/` or the pin constraints change. Changing which *demo* runs does not
+`rtl/` or the pin constraints change. Changing which *app* runs does not
 need it, thanks to `firmware/bootloader/`: it always runs first after
 reset, waits briefly for a new program over UART, and otherwise boots
 whatever's already loaded.
 
 One-time setup — build and program a bitstream as usual (`make bitstream`,
-`make program`). From then on, to try a different demo (or a firmware
+`make program`). From then on, to try a different app (or a firmware
 change), skip straight to:
 
 ```bash
-make load PORT=/dev/tty.usbserial-XXXX DEMO=opt3001
+make load PORT=/dev/cu.usbserial-XXXX APP=opt3001
 ```
 
-This rebuilds just `firmware/opt3001/main.c`, then prompts you to press the
-reset button on the board (the script spams a sync byte for up to 8s,
+This rebuilds just `firmware/samples/opt3001/main.c` into
+`build/firmware/opt3001/firmware.bin`, then prompts you to press the reset
+button on the board (the script spams a sync byte for up to 8s,
 comfortably inside the bootloader's ~15s window), streams the new binary
 over serial, and drops into a live view of the board's UART output. No
 `make bitstream`/`make program` involved.
@@ -290,14 +298,31 @@ bootloader (freshly reset) acks it, then sends a 4-byte length, the raw
 binary, and a 1-byte checksum; the bootloader writes it into the user
 region at 0x800, verifies the checksum, and jumps there. If you don't
 trigger a load in time, the bootloader just jumps to whatever was already
-loaded — so a plain reset/power-cycle still runs the same demo as before,
-just after the bootloader's banner and a ~15s wait.
+loaded — so a plain reset still runs the same app as before, just after the
+bootloader's banner and a ~15s wait.
+
+Important: `make load` only updates the SoC's live BRAM contents. That new
+app survives reset, but not loss of power, because the current UART loader
+does not write back into the board's non-volatile configuration flash.
+
+If you want an app to come back after power-up, rebuild the bitstream with
+that app baked into `build/firmware/<app>/firmware.hex`, then write the
+bitstream into SPI flash:
+
+```bash
+make bitstream APP=opt3001
+make program-flash
+```
+
+On the next power-up, the FPGA configures itself from SPI flash, BRAM is
+initialized from that baked-in image, the bootloader runs, and then it boots
+that app by default.
 
 ## Monitoring UART
 
 ```bash
 # macOS
-screen /dev/tty.usbserial-* 115200
+screen /dev/cu.usbserial-* 115200
 
 # Linux
 screen /dev/ttyUSB1 115200
